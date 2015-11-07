@@ -16,7 +16,7 @@ import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.broadcast.Broadcast;
 import scala.Tuple2;
 
-public class FarthestPointPair 
+public class ShortestPointPair 
 {
 	@SuppressWarnings("serial")
 	public static class getPoints implements Function<String, Point> 
@@ -59,33 +59,20 @@ public class FarthestPointPair
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
 	    JavaRDD<Point> inputPoints = input.map(new getPoints());
-	    JavaRDD<Point> localConvexHullPoints = inputPoints.mapPartitions(new computeLocalConvexHull());
-	    JavaRDD<List<Point>> localPointsList = localConvexHullPoints.glom();
-	    List<Point> convexHullPoints = localPointsList.reduce(new Function2<List<Point>, List<Point>, List<Point>>()
-	    {
-			private static final long serialVersionUID = 1L;
+	    
+	    List<Point> inputPointsList = inputPoints.collect();
+	    
+	    final Broadcast<List<Point>> inputPointBroadcast = sc.broadcast(inputPointsList);
 
-			public List<Point> call(List<Point> arg0, List<Point> arg1) throws Exception 
-			{
-				QuickHull quickHull = new QuickHull();
-				arg0.addAll(arg1);
-				List<Point> globalPoints = quickHull.quickHull((ArrayList<Point>)arg0);
-				return globalPoints;
-			}
-		});
-	    
-	    
-	    final Broadcast<List<Point>> convexHull = sc.broadcast(convexHullPoints);
-	    
-	    JavaRDD<Point> globalConvexHullPoints = sc.parallelize(convexHullPoints);
-	    JavaPairRDD<Double,Tuple2<Point,Point>> localPoints = globalConvexHullPoints.mapPartitionsToPair(new PairFlatMapFunction<Iterator<Point>,Double,Tuple2<Point,Point>>()
+	   
+	    JavaPairRDD<Double,Tuple2<Point,Point>> distancePoints = inputPoints.mapPartitionsToPair(new PairFlatMapFunction<Iterator<Point>,Double,Tuple2<Point,Point>>()
 		{ 
 			private static final long serialVersionUID = 1L;
 
 			public Iterable<Tuple2<Double,Tuple2<Point,Point>>> call(Iterator<Point> inputPoints) throws Exception 
 			{
 				ArrayList<Tuple2<Double, Tuple2<Point,Point>>> localDistPoints = new ArrayList<Tuple2<Double, Tuple2<Point,Point>>>();
-				List<Point> broadCastPoints = convexHull.getValue();
+				List<Point> broadCastPoints = inputPointBroadcast.getValue();
 				EucledianDistance eucledian = new EucledianDistance();
 				while(inputPoints.hasNext())
 				{
@@ -93,14 +80,15 @@ public class FarthestPointPair
 					for(Point broadCastPoint: broadCastPoints )
 					{
 						Double distance = eucledian.computeEucledianDistance(broadCastPoint, inputPoint);
-						localDistPoints.add(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(inputPoint,broadCastPoint)));
+						if(distance!=0)
+							localDistPoints.add(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(inputPoint,broadCastPoint)));
 					}
 				}			
 				return localDistPoints;
 			}});
 	    
 	    
-	    JavaRDD<Double> Distances = localPoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
+	    JavaRDD<Double> Distances = distancePoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
 		{
 			private static final long serialVersionUID = 1L;
 
@@ -111,34 +99,36 @@ public class FarthestPointPair
 	
 		});
 	    
-	    Double maxDistance = Distances.reduce(new Function2<Double,Double,Double>()
+	    Double minDistance = Distances.reduce(new Function2<Double,Double,Double>()
 		{
 			private static final long serialVersionUID = 1L;
 
 			public Double call(Double arg0, Double arg1)
 					throws Exception 
 			{
-				return Math.max(arg0,arg1);
+				return Math.min(arg0,arg1);
 			}
 	
 		}
-);
+	    );
 	    
-	System.out.println("\n\n\nMaximum Distance:: "+ maxDistance + "\n\n\n");
-	final Broadcast<Double> maxFarthestDistance = sc.broadcast(maxDistance);
+	
+	
+	final Broadcast<Double> minShortestDistance = sc.broadcast(minDistance);
 
-	JavaPairRDD<Double,Tuple2<Point,Point>> FarthestPairPoint = localPoints.filter(new Function<Tuple2<Double,Tuple2<Point,Point>>,Boolean>()
+	JavaPairRDD<Double,Tuple2<Point,Point>> closestPairPoints = distancePoints.filter(new Function<Tuple2<Double,Tuple2<Point,Point>>,Boolean>()
 			{
 				private static final long serialVersionUID = 1L;
 				public Boolean call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
 				{
-					return arg0._1.equals(maxFarthestDistance.getValue());
+					return arg0._1.equals(minShortestDistance.getValue());
 				}
 		
 			}
 			
 			);
-	FarthestPairPoint.saveAsTextFile(outputFile);
+	
+	closestPairPoints.saveAsTextFile(outputFile);
 }
 	
 }
