@@ -8,7 +8,6 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
@@ -30,31 +29,12 @@ public class ShortestPointPair
 	    }
 	  } 
 	
-	public static class computeLocalConvexHull implements FlatMapFunction <Iterator<Point> ,Point>
-	{ 
-		private static final long serialVersionUID = 1L;
-
-		public Iterable<Point> call(Iterator<Point> inputPoints) throws Exception 
-		{
-			ArrayList<Point> pointsList = new ArrayList<Point>();
-			while(inputPoints.hasNext())
-			{
-				pointsList.add(inputPoints.next());
-			}
-			
-			QuickHull computeConvexHull = new QuickHull();
-			
-			ArrayList<Point> localHullPointList = computeConvexHull.quickHull(pointsList);
-			return localHullPointList;
-		}
-	
-	}
 	public static void main(String args[]) throws Exception
 	{
 		String inputFile = args[0];
 	    String outputFile = args[1];
 	    
-	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ConvexHull").setMaster("spark://192.168.0.19:7077");
+	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ClosestPair").setMaster("spark://10.140.35.209:7077");
 	    JavaSparkContext sc = new JavaSparkContext(conf);
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
@@ -80,13 +60,14 @@ public class ShortestPointPair
 					for(Point broadCastPoint: broadCastPoints )
 					{
 						Double distance = eucledian.computeEucledianDistance(broadCastPoint, inputPoint);
-						if(distance!=0)
+						if(distance!=0 && !localDistPoints.contains(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(broadCastPoint,inputPoint)))) 
 							localDistPoints.add(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(inputPoint,broadCastPoint)));
 					}
 				}			
 				return localDistPoints;
 			}});
 	    
+
 	    
 	    JavaRDD<Double> Distances = distancePoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
 		{
@@ -98,6 +79,8 @@ public class ShortestPointPair
 			}
 	
 		});
+	    
+	    List<Double> collectDistance = Distances.collect();
 	    
 	    Double minDistance = Distances.reduce(new Function2<Double,Double,Double>()
 		{
@@ -128,7 +111,24 @@ public class ShortestPointPair
 			
 			);
 	
-	closestPairPoints.saveAsTextFile(outputFile);
+	
+	JavaPairRDD<Point,Point> closestPairPointsFiltered = closestPairPoints.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Point,Point>()
+	{
+	
+		private static final long serialVersionUID = 1L;
+
+		
+		public Tuple2<Point,Point> call(Tuple2<Double,Tuple2<Point,Point>> arg0) throws Exception {
+			return arg0._2;
+		}
+	}
+			
+	);
+	
+	closestPairPointsFiltered = closestPairPointsFiltered.coalesce(1);
+	closestPairPointsFiltered.saveAsTextFile(outputFile);
+	
+	sc.close();
 }
 	
 }
