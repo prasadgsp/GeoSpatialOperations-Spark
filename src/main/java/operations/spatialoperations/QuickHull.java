@@ -4,11 +4,12 @@ import java.util.ArrayList;
  
 public class QuickHull
 {
-    public ArrayList<Point> quickHull(ArrayList<Point> points)
+    @SuppressWarnings("unchecked")
+	public ArrayList<Point> quickHull(ArrayList<Point> points)
     {
         ArrayList<Point> convexHull = new ArrayList<Point>();
         if (points.size() < 3)
-            return (ArrayList) points.clone();
+            return (ArrayList<Point>)points.clone();
  
         int minPoint = -1, maxPoint = -1;
         Double minX = Double.MAX_VALUE;

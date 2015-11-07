@@ -24,11 +24,10 @@ public class FarthestPointPair
 	    public Point call(String inputLines) 
 	    {
 	      String coordinates[] = inputLines.split("\\s*,\\s*");
-	      //System.out.println(coordinates);
 	      Point point = new Point(Double.parseDouble(coordinates[0]),Double.parseDouble(coordinates[1]));
 	      return  point;
-	    } // Call function
-	  } // Static class
+	    }
+	  }
 	
 	public static class computeLocalConvexHull implements FlatMapFunction <Iterator<Point> ,Point>
 	{ 
@@ -54,11 +53,12 @@ public class FarthestPointPair
 		String inputFile = args[0];
 	    String outputFile = args[1];
 	    
-	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ConvexHull").setMaster("spark://10.143.5.164:7077");
+	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.FarthestPointPair").setMaster("spark://10.144.147.188:7077");
 	    JavaSparkContext sc = new JavaSparkContext(conf);
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
 	    JavaRDD<Point> inputPoints = input.map(new getPoints());
+	    
 	    JavaRDD<Point> localConvexHullPoints = inputPoints.mapPartitions(new computeLocalConvexHull());
 	    JavaRDD<List<Point>> localPointsList = localConvexHullPoints.glom();
 	    List<Point> convexHullPoints = localPointsList.reduce(new Function2<List<Point>, List<Point>, List<Point>>()
@@ -78,6 +78,7 @@ public class FarthestPointPair
 	    final Broadcast<List<Point>> convexHull = sc.broadcast(convexHullPoints);
 	    
 	    JavaRDD<Point> globalConvexHullPoints = sc.parallelize(convexHullPoints);
+	    
 	    JavaPairRDD<Double,Tuple2<Point,Point>> localPoints = globalConvexHullPoints.mapPartitionsToPair(new PairFlatMapFunction<Iterator<Point>,Double,Tuple2<Point,Point>>()
 		{ 
 			private static final long serialVersionUID = 1L;
@@ -93,38 +94,14 @@ public class FarthestPointPair
 					for(Point broadCastPoint: broadCastPoints )
 					{
 						Double distance = eucledian.computeEucledianDistance(broadCastPoint, inputPoint);
+						if(distance != 0)
 						localDistPoints.add(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(inputPoint,broadCastPoint)));
 					}
 				}			
 				return localDistPoints;
 			}});
 	    
-	    
-	    /*JavaPairRDD<Integer,Double> Distances = localPoints.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Integer,Double>()
-	    		{
-					private static final long serialVersionUID = 1L;
-
-					public Tuple2<Integer, Double> call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
-					{
-						return new Tuple2<Integer,Double>(1,arg0._1);
-					}
-	    	
-	    		});
-
-	    Tuple2<Integer,Double> maxDistance = Distances.reduce(new Function2<Tuple2<Integer,Double>,Tuple2<Integer,Double>,Tuple2<Integer,Double>>()
-	    		{
-					private static final long serialVersionUID = 1L;
-
-					public Tuple2<Integer, Double> call(Tuple2<Integer, Double> arg0, Tuple2<Integer, Double> arg1)
-							throws Exception 
-					{
-						Double distance = Math.max(arg0._2,arg1._2);
-						return new Tuple2<Integer,Double>(1,distance);
-					}
-	    	
-	    		}
-	    );*/
-	    JavaRDD<Double> Distances = localPoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
+	   JavaRDD<Double> Distances = localPoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
 		{
 			private static final long serialVersionUID = 1L;
 
@@ -147,22 +124,36 @@ public class FarthestPointPair
 	
 		}
 );
-	    
-	System.out.println("Maximum Distance:: "+ maxDistance);
 	final Broadcast<Double> maxFarthestDistance = sc.broadcast(maxDistance);
-	System.out.println(maxFarthestDistance.getValue()+"---");
+	
 	JavaPairRDD<Double,Tuple2<Point,Point>> FarthestPairPoint = localPoints.filter(new Function<Tuple2<Double,Tuple2<Point,Point>>,Boolean>()
 			{
 				private static final long serialVersionUID = 1L;
 				public Boolean call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
 				{
-					return arg0._1 == maxFarthestDistance.getValue();
+					return arg0._1.equals(maxFarthestDistance.getValue());
+
 				}
 		
 			}
 			
 			);
-	FarthestPairPoint.saveAsTextFile(outputFile);
+	
+	JavaPairRDD<Point,Point> farthestPairPoints = FarthestPairPoint.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Point,Point>()
+			{
+
+				private static final long serialVersionUID = 1L;
+				public Tuple2<Point, Point> call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
+				{
+					return arg0._2;
+				}
+		
+			}
+	
+	);
+	JavaPairRDD<Point,Point> farthestPairPointResult = farthestPairPoints.coalesce(1);
+	farthestPairPointResult.saveAsTextFile(outputFile);
+	sc.close();
 }
 	
 }
