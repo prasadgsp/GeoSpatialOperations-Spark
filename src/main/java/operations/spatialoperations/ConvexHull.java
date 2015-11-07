@@ -1,7 +1,6 @@
 package operations.spatialoperations;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
@@ -15,6 +14,7 @@ import org.apache.spark.api.java.function.Function2;
 public class ConvexHull 
 {
 	@SuppressWarnings("serial")
+	// Convert input data into set of Points
 	public static class getPoints implements Function<String, Point> 
 	{
 	    public Point call(String inputLines) 
@@ -22,14 +22,12 @@ public class ConvexHull
 	      String coordinates[] = inputLines.split("\\s*,\\s*");
 	      Point point = new Point(Double.parseDouble(coordinates[0]),Double.parseDouble(coordinates[1]));
 	      return  point;
-	    } // Call function
-	  } // Static class
+	    }
+	  }
 	
+	// Compute local convex hull at each of the partitions
 	public static class computeLocalConvexHull implements FlatMapFunction <Iterator<Point> ,Point>
 	{ 
-		/**
-		 * 
-		 */
 		private static final long serialVersionUID = 1L;
 
 		public Iterable<Point> call(Iterator<Point> inputPoints) throws Exception 
@@ -45,27 +43,24 @@ public class ConvexHull
 			ArrayList<Point> localHullPointList = computeConvexHull.quickHull(pointsList);
 			return localHullPointList;
 		}
-
-	
 	}
+	
 	public static void main(String args[]) throws Exception
 	{
 		String inputFile = args[0];
 	    String outputFile = args[1];
 	    
-	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ConvexHull").setMaster("spark://10.143.5.164:7077");
+	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ConvexHull").setMaster("spark://10.144.147.188:7077");
 	    JavaSparkContext sc = new JavaSparkContext(conf);
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
 	    JavaRDD<Point> inputPoints = input.map(new getPoints());
+	    
 	    JavaRDD<Point> localConvexHullPoints = inputPoints.mapPartitions(new computeLocalConvexHull());
-	    //inputPoints.saveAsTextFile(args[1]);
 	    JavaRDD<List<Point>> localPointsList = localConvexHullPoints.glom();
-	    List<Point> convexHullPoints = localPointsList.reduce(new Function2<List<Point>, List<Point>, List<Point>>() {
-			
-			/**
-			 * 
-			 */
+	    
+	    List<Point> convexHullPoints = localPointsList.reduce(new Function2<List<Point>, List<Point>, List<Point>>() 
+	    {
 			private static final long serialVersionUID = 1L;
 
 			public List<Point> call(List<Point> arg0, List<Point> arg1) throws Exception 
@@ -78,7 +73,10 @@ public class ConvexHull
 		});
 	    
 	    JavaRDD<Point> globalConvexHullPoints = sc.parallelize(convexHullPoints);
-	    globalConvexHullPoints.saveAsTextFile(outputFile);
+	    JavaRDD<Point> outputConvexHullPoints = globalConvexHullPoints.coalesce(1);
+	    outputConvexHullPoints.saveAsTextFile(outputFile);
+	    
+	    sc.close();
 	
 }
 	
