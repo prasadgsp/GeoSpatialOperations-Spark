@@ -1,6 +1,7 @@
 package operations.spatialoperations;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -10,6 +11,8 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
+
+import scala.Tuple2;
 
 public class ConvexHull 
 {
@@ -50,7 +53,7 @@ public class ConvexHull
 		String inputFile = args[0];
 	    String outputFile = args[1];
 	    
-	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ConvexHull").setMaster("spark://10.144.147.188:7077");
+	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ConvexHull");
 	    JavaSparkContext sc = new JavaSparkContext(conf);
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
@@ -72,7 +75,10 @@ public class ConvexHull
 			}
 		});
 	    
+	    Collections.sort(convexHullPoints);
+	    
 	    JavaRDD<Point> globalConvexHullPoints = sc.parallelize(convexHullPoints);
+	    
 	    JavaRDD<Point> outputConvexHullPoints = globalConvexHullPoints.coalesce(1);
 	    outputConvexHullPoints.saveAsTextFile(outputFile);
 	    
