@@ -34,7 +34,7 @@ public class ClosestPointPair
 		String inputFile = args[0];
 	    String outputFile = args[1];
 	    
-	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ClosestPair").setMaster("spark://10.140.35.209:7077");
+	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.ClosestPair");
 	    JavaSparkContext sc = new JavaSparkContext(conf);
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
@@ -60,59 +60,33 @@ public class ClosestPointPair
 					for(Point broadCastPoint: broadCastPoints )
 					{
 						Double distance = eucledian.computeEucledianDistance(broadCastPoint, inputPoint);
-						if(distance!=0 && !localDistPoints.contains(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(broadCastPoint,inputPoint)))) 
+						if(distance!=0) 
 							localDistPoints.add(new Tuple2<Double, Tuple2<Point,Point>>(distance, new Tuple2<Point,Point>(inputPoint,broadCastPoint)));
 					}
 				}			
 				return localDistPoints;
 			}});
 	    
-
-	    
-	    JavaRDD<Double> Distances = distancePoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
-		{
-			private static final long serialVersionUID = 1L;
-
-			public Double call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
+	    Tuple2<Double,Tuple2<Point,Point>> minDistancePointPair = distancePoints.reduce( new Function2<Tuple2<Double, Tuple2<Point,Point>>, Tuple2<Double, Tuple2<Point,Point>>, Tuple2<Double, Tuple2<Point,Point>>>() {
+	    	
+ 			private static final long serialVersionUID = 1L;
+ 			
+ 			public Tuple2<Double,Tuple2<Point,Point>> call(Tuple2<Double, Tuple2<Point,Point>> arg0, Tuple2<Double, Tuple2<Point,Point>> arg1) throws Exception 
 			{
-				return arg0._1;
+				if(arg0._1<=arg1._1)
+					return arg0;
+				else
+					return arg1;
 			}
-	
-		});
+ 			
+    	});
 	    
-	    List<Double> collectDistance = Distances.collect();
-	    
-	    Double minDistance = Distances.reduce(new Function2<Double,Double,Double>()
-		{
-			private static final long serialVersionUID = 1L;
-
-			public Double call(Double arg0, Double arg1)
-					throws Exception 
-			{
-				return Math.min(arg0,arg1);
-			}
+	List<Tuple2<Double,Tuple2<Point,Point>>> closestPairList = new ArrayList<Tuple2<Double,Tuple2<Point,Point>>>();
+	closestPairList.add(minDistancePointPair);
 	
-		}
-	    );
-	    
+	JavaRDD<Tuple2<Double,Tuple2<Point,Point>>> minDistancePointPairRDD = sc.parallelize(closestPairList);	
 	
-	
-	final Broadcast<Double> minShortestDistance = sc.broadcast(minDistance);
-
-	JavaPairRDD<Double,Tuple2<Point,Point>> closestPairPoints = distancePoints.filter(new Function<Tuple2<Double,Tuple2<Point,Point>>,Boolean>()
-			{
-				private static final long serialVersionUID = 1L;
-				public Boolean call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
-				{
-					return arg0._1.equals(minShortestDistance.getValue());
-				}
-		
-			}
-			
-			);
-	
-	
-	JavaPairRDD<Point,Point> closestPairPointsFiltered = closestPairPoints.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Point,Point>()
+	JavaPairRDD<Point,Point> closestPairPointsFiltered = minDistancePointPairRDD.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Point,Point>()
 	{
 	
 		private static final long serialVersionUID = 1L;
@@ -125,8 +99,31 @@ public class ClosestPointPair
 			
 	);
 	
-	closestPairPointsFiltered = closestPairPointsFiltered.coalesce(1);
-	closestPairPointsFiltered.saveAsTextFile(outputFile);
+    JavaRDD<String> closestPairSorted = closestPairPointsFiltered.map(new Function<Tuple2<Point,Point>, String>()
+    		{
+
+				private static final long serialVersionUID = 1L;
+
+				public String call(Tuple2<Point, Point> arg0) throws Exception {
+					String outputPoints = "";
+					if(arg0._1.getX()<arg0._2().getX())
+						outputPoints = arg0._1.toString()+"\n"+arg0._2.toString();
+					else if(arg0._1.getX()==arg0._2.getX())
+					{
+						if(arg0._1.getY()<=arg0._2.getY())
+							outputPoints = arg0._1.toString()+"\n"+arg0._2.toString();
+						else
+							outputPoints = arg0._2.toString()+"\n"+arg0._1.toString();
+					}
+					else
+						outputPoints = arg0._2.toString()+"\n"+arg0._1.toString();
+					return outputPoints;
+				}
+    	
+    		});
+
+    closestPairSorted = closestPairSorted.coalesce(1);
+    closestPairSorted.saveAsTextFile(outputFile);
 	
 	sc.close();
 }

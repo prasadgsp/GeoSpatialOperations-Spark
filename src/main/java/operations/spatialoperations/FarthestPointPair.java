@@ -53,7 +53,7 @@ public class FarthestPointPair
 		String inputFile = args[0];
 	    String outputFile = args[1];
 	    
-	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.FarthestPointPair").setMaster("spark://10.144.147.188:7077");
+	    SparkConf conf = new SparkConf().setAppName("operations.spatialoperations.FarthestPointPair");
 	    JavaSparkContext sc = new JavaSparkContext(conf);
 	    
 	    JavaRDD<String> input = sc.textFile(inputFile);
@@ -101,58 +101,65 @@ public class FarthestPointPair
 				return localDistPoints;
 			}});
 	    
-	   JavaRDD<Double> Distances = localPoints.map(new Function<Tuple2<Double,Tuple2<Point,Point>>,Double>()
-		{
-			private static final long serialVersionUID = 1L;
-
-			public Double call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
+	    Tuple2<Double,Tuple2<Point,Point>> maxDistancePointPair = localPoints.reduce( new Function2<Tuple2<Double, Tuple2<Point,Point>>, Tuple2<Double, Tuple2<Point,Point>>, Tuple2<Double, Tuple2<Point,Point>>>() {
+	    	
+ 			private static final long serialVersionUID = 1L;
+ 			
+ 			public Tuple2<Double,Tuple2<Point,Point>> call(Tuple2<Double, Tuple2<Point,Point>> arg0, Tuple2<Double, Tuple2<Point,Point>> arg1) throws Exception 
 			{
-				return arg0._1;
+				if(arg0._1>=arg1._1)
+					return arg0;
+				else
+					return arg1;
 			}
-	
-		});
+ 			
+    	});
 	    
-	    Double maxDistance = Distances.reduce(new Function2<Double,Double,Double>()
-		{
-			private static final long serialVersionUID = 1L;
-
-			public Double call(Double arg0, Double arg1)
-					throws Exception 
-			{
-				return Math.max(arg0,arg1);
-			}
+	List<Tuple2<Double,Tuple2<Point,Point>>> farthestPairList = new ArrayList<Tuple2<Double,Tuple2<Point,Point>>>();
+	farthestPairList.add(maxDistancePointPair);
 	
+	JavaRDD<Tuple2<Double,Tuple2<Point,Point>>> maxDistancePointPairRDD = sc.parallelize(farthestPairList);	
+	
+	JavaPairRDD<Point,Point> farthestPairPointsFiltered = maxDistancePointPairRDD.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Point,Point>()
+	{
+	
+		private static final long serialVersionUID = 1L;
+
+		
+		public Tuple2<Point,Point> call(Tuple2<Double,Tuple2<Point,Point>> arg0) throws Exception {
+			return arg0._2;
 		}
-);
-	final Broadcast<Double> maxFarthestDistance = sc.broadcast(maxDistance);
-	
-	JavaPairRDD<Double,Tuple2<Point,Point>> FarthestPairPoint = localPoints.filter(new Function<Tuple2<Double,Tuple2<Point,Point>>,Boolean>()
-			{
-				private static final long serialVersionUID = 1L;
-				public Boolean call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
-				{
-					return arg0._1.equals(maxFarthestDistance.getValue());
-
-				}
-		
-			}
+	}
 			
-			);
+	);
 	
-	JavaPairRDD<Point,Point> farthestPairPoints = FarthestPairPoint.mapToPair(new PairFunction<Tuple2<Double,Tuple2<Point,Point>>,Point,Point>()
-			{
+    JavaRDD<String> farthestPairSorted = farthestPairPointsFiltered.map(new Function<Tuple2<Point,Point>, String>()
+    		{
 
 				private static final long serialVersionUID = 1L;
-				public Tuple2<Point, Point> call(Tuple2<Double, Tuple2<Point, Point>> arg0) throws Exception 
-				{
-					return arg0._2;
+
+				public String call(Tuple2<Point, Point> arg0) throws Exception {
+					String outputPoints = "";
+					if(arg0._1.getX()<arg0._2().getX())
+						outputPoints = arg0._1.toString()+"\n"+arg0._2.toString();
+					else if(arg0._1.getX()==arg0._2.getX())
+					{
+						if(arg0._1.getY()<=arg0._2.getY())
+							outputPoints = arg0._1.toString()+"\n"+arg0._2.toString();
+						else
+							outputPoints = arg0._2.toString()+"\n"+arg0._1.toString();
+					}
+					else
+						outputPoints = arg0._2.toString()+"\n"+arg0._1.toString();
+					return outputPoints;
 				}
-		
-			}
-	
-	);
-	JavaPairRDD<Point,Point> farthestPairPointResult = farthestPairPoints.coalesce(1);
-	farthestPairPointResult.saveAsTextFile(outputFile);
+    	
+    		});
+    
+    farthestPairSorted = farthestPairSorted.coalesce(1);
+    farthestPairSorted.saveAsTextFile(outputFile);
+    
+    
 	sc.close();
 }
 	
