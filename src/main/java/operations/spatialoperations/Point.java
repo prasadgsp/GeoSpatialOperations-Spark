@@ -1,8 +1,9 @@
 package operations.spatialoperations;
 
 import java.io.Serializable;
+import java.util.Comparator;
 
-public class Point implements Serializable
+public class Point implements Serializable, Comparable<Point>
 {
 	/**
 	 * 
@@ -40,6 +41,27 @@ public class Point implements Serializable
 	public String toString()
 	{
 		return getX() + "," + getY();
+	}
+
+	public int compareTo(Point B) {
+		if(this.getX()<B.getX()){
+			return -1;
+		}
+		else if(this.getX().equals(B.getX()))
+		{
+			if(this.getY()<B.getY()){
+				return -1;
+			}
+			else if(this.getY().equals(B.getY())){
+				return 0;
+			}
+			else{
+				return 1;
+			}
+		}
+		else{
+			return 1;
+		}
 	}
 	
 	
