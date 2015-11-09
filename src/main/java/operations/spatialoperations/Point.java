@@ -1,7 +1,6 @@
 package operations.spatialoperations;
 
 import java.io.Serializable;
-import java.util.Comparator;
 
 public class Point implements Serializable, Comparable<Point>
 {
